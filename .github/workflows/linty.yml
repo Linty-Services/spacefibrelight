@@ -1,9 +1,15 @@
-name: Linty
-on: [push]
+name: Deploy Linty HTML Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      linty_scanner_version:
+        description: 'linty-scanner version'
+        required: true
+        default: beta
+
 jobs:
-  linty:
-    name: Linty
-    timeout-minutes: 10
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Git Checkout
@@ -11,39 +17,51 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Cache
-        id: cache-sonar
-        uses: actions/cache@v4
-        with:
-          path: ~/.sonar/cache
-          key: sonar
-          restore-keys: sonar
-
-      - name: Create cache directory if cache is not restored
-        if: steps.cache-sonar.outputs.cache-hit != 'true'
-        run: mkdir $HOME/.sonar && mkdir $HOME/.sonar/cache
-
-      - name: Run Linty
+      - name: Run Linty Scan
         run: |
+          if [ "${{ github.event.inputs.linty_scanner_version}}" != "" ]; then
+            version=${{ github.event.inputs.linty_scanner_version}}
+          else
+            version=latest
+          fi
           docker run \
             --rm \
             --user="$(id -u):$(id -g)" \
-            -e SONAR_HOST_URL=${{ vars.SONAR_HOST_URL }} \
-            -e SONAR_TOKEN="${{ secrets.SONAR_TOKEN }}" \
+            -e SONAR_HOST_URL="${{ vars.LINTY_CLOUD_URL }}" \
+            -e SONAR_TOKEN="${{ secrets.SONARQUBE_SCANNER_FOR_PUBLIC_REPOSITORIES_TOKEN }}" \
             -e GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" \
             -e GITHUB_REPOSITORY_OWNER="$GITHUB_REPOSITORY_OWNER" \
             -e GITHUB_REPOSITORY="$GITHUB_REPOSITORY" \
             -e TABBY_CAD_LICENSE="$TABBY_CAD_LICENSE" \
-            -v "$HOME/.sonar/cache:/opt/sonar-scanner/.sonar/cache" \
-            -v "${PWD}:/usr/src" \
-            lintyservices/linty-scanner:beta
+            -v "$PWD:/usr/src" \
+            lintyservices/linty-scanner:$version -Dproject.settings=.linty/linty.properties -Dsonar.hdl.report.urlPath="spacefibrelight"
         env:
-          TABBY_CAD_LICENSE: ${{secrets.TABBY_CAD_LICENSE}}
+          TABBY_CAD_LICENSE: ${{ secrets.TABBY_CAD_LICENSE }}
 
       - name: Debug
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: debug
-          include-hidden-files: true
           path: .linty/
+          include-hidden-files: true
+
+      - name: Upload Website Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .linty/work/report/build/html
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
