@@ -74,3 +74,6 @@ work
 #remove xilinx ip src copy
 xilinx_ip/spacefibrelight_full_wrapper/src
 **/vivado_pid*.str
+
+.linty/work/
+.scannerwork/
